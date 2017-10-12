@@ -1,10 +1,24 @@
 #!/usr/bin/env python
-# MIT License, (c) Joshua Wright jwright@willhackforsushi.com
-# https://github.com/joswr1ght/md5deep
-import os, sys, hashlib
 
-# Reproduce this output with slashes consistent for Windows systems
-#ba2812a436909554688154be461d976c  A\SEC575-Clown-Chat\nvram
+import os
+import sys 
+import hashlib
+import logging
+import time
+
+try:
+    import paramiko
+except (IOError, MemoryError, OSError, SyntaxError):
+    print "Please run pip install paramiko"
+
+def instantiate_logger():
+    global logger
+    logger = logging.getLogger("md5deep")
+    hdlr = logging.FileHandler("/var/log/md5deep.log")
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    hdlr.setFormatter(formatter)
+    logger.addHandler(hdlr)
+    logger.setLevel(logging.INFO)
 
 # Optimized for low-memory systems, read whole file with blocksize=0
 def md5sum(filename, blocksize=65536):
@@ -14,12 +28,30 @@ def md5sum(filename, blocksize=65536):
             hash.update(block)
     return hash.hexdigest()
 
+def sshGetCreds(device):
+    global dev
+    global uname
+    global ip
+    dev = device
+    uname = parser.get(device, "USER")
+    ip = parser.get(device, "IP")
+
+# Use ssh keys not password
+def sshLogin(ip, uname):
+    global client
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(ip, port=22, username=uname, look_for_keys=True)
+    connection = client.invoke_shell()
+
 def usage():
     print "Usage: md5deep.py [OPTIONS] [FILES]"
     print "-r        - recursive mode, all subdirectories are traversed."
     print "-X <file> - enables negative matching mode."
     print "-f        - speed up hash calculations, using more memory."
     print "-0        - Uses a NULL character (/0) to terminate each line instead of a newline. Useful for processing filenames with strange characters."
+    print "-d        - Check hashes against a second repo and show the mismatched files."
+    print "-s        - Check against a remote repository. Please set up ssh key exchange between the local and remote host."
 
 def validate_hashes(hashfile, hashlist):
     # Open file and build a new hashlist
