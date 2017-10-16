@@ -6,15 +6,10 @@ import hashlib
 import logging
 import time
 
-try:
-    import paramiko
-except (IOError, MemoryError, OSError, SyntaxError):
-    print "Please run pip install paramiko"
-
 def instantiate_logger():
     global logger
     logger = logging.getLogger("md5deep")
-    hdlr = logging.FileHandler("/var/log/md5deep.log")
+    hdlr = logging.FileHandler("./md5deep.log")
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     hdlr.setFormatter(formatter)
     logger.addHandler(hdlr)
@@ -28,30 +23,13 @@ def md5sum(filename, blocksize=65536):
             hash.update(block)
     return hash.hexdigest()
 
-def sshGetCreds(device):
-    global dev
-    global uname
-    global ip
-    dev = device
-    uname = parser.get(device, "USER")
-    ip = parser.get(device, "IP")
-
-# Use ssh keys not password
-def sshLogin(ip, uname):
-    global client
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(ip, port=22, username=uname, look_for_keys=True)
-    connection = client.invoke_shell()
-
 def usage():
     print "Usage: md5deep.py [OPTIONS] [FILES]"
     print "-r        - recursive mode, all subdirectories are traversed."
     print "-X <file> - enables negative matching mode."
     print "-f        - speed up hash calculations, using more memory."
     print "-0        - Uses a NULL character (/0) to terminate each line instead of a newline. Useful for processing filenames with strange characters."
-    print "-d        - Check hashes against a second repo and show the mismatched files."
-    print "-s        - Check against a remote repository. Please set up ssh key exchange between the local and remote host."
+    print "-d        - Destination to check hashes against."
 
 def validate_hashes(hashfile, hashlist):
     # Open file and build a new hashlist
@@ -85,53 +63,15 @@ def normfname(filename):
     else:
         return filename.replace("\\","/")
 
-
-if __name__ == '__main__':
-    
-    opt_recursive = None
-    opt_negmatch = None
-    opt_fast = None
-    opt_null = None
-    opt_files = []
-
-    if len(sys.argv) == 1:
-        usage()
-        sys.exit(0)
-
-    args = sys.argv[1:]
-    it = iter(args)
-    for i in it:
-        if i == '-r':
-            opt_recursive = True
-            continue
-        elif i == '-0':
-            opt_null = True
-            continue
-        elif i == '-f':
-            opt_fast = True
-        elif i == '-X':
-            opt_negmatch = next(it)
-            if not os.path.isfile(opt_negmatch):
-                sys.stdout.write("Cannot open negative match file %s\n"%opt_negmatch)
-                sys.exit(-1)
-            continue
-        else:
-            opt_files.append(i)
-
-    if opt_fast:
-        md5blocklen=0
-    else:
-        # Default to optimize for low-memory systems
-        md5blocklen=65536
-
-    # Build a list of (hash,filename) for each file, regardless of specified 
+def hash_printer(source):
+    # Build a list of (hash,filename) for each file, regardless of specified
     # options
     hashlist = []
     # Hash files in the current directory
-    for f in opt_files:
+    for f in source:
         if os.path.isfile(f):
             hashlist.append((f, md5sum(f, md5blocklen)))
-  
+
     # Walk all subdirectories
     if opt_recursive:
         for start in sys.argv[1:]:
@@ -151,3 +91,56 @@ if __name__ == '__main__':
               print "%s  %s\0"%(hash[1],winfname(hash[0]))
            else:
               print "%s  %s"%(hash[1],winfname(hash[0]))
+
+def compare_hash_arrays(hash_one, hash_two):
+    compared_hashes = []
+    compared_hashes = [x for x in hash_one if x not in hash_two]
+    return compared_hashes
+
+if __name__ == '__main__':
+    ip = ""
+    uname = ""
+    path = ""
+    opt_recursive = None
+    opt_negmatch = None
+    opt_fast = None
+    opt_null = None
+    opt_dest = None
+    opt_files = []
+    opt_dest_files = []
+    # Default block length to optimize for low-memory systems
+    md5blocklen=65536
+
+    if len(sys.argv) == 1:
+        usage()
+        sys.exit(0)
+
+    args = sys.argv[1:]
+    it = iter(args)
+    for i in it:
+        if i == '-r':
+            opt_recursive = True
+            opt_files.append(i)
+            continue
+        elif i == '-0':
+            opt_null = True
+            continue
+        elif i == '-f':
+            opt_fast = True
+            md5blocklen = 0
+        elif i == '-X':
+            opt_negmatch = next(it)
+            if not os.path.isfile(opt_negmatch):
+                sys.stdout.write("Cannot open negative match file %s\n"%opt_negmatch)
+                sys.exit(-1)
+            continue
+        elif i == '-d':
+            opt_dest = True
+            opt_dest_files.append(i)
+            continue    
+        else:
+            continue
+
+    hash_printer(opt_files)
+    hash_printer(opt_dest_files)
+    compare_hash_arrays(opt_files, opt_dest_files)
